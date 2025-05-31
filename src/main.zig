@@ -9,6 +9,7 @@ const THRUST_STRENGTH: f32 = 500;
 const ROTATION_SPEED: f32 = 2.5;
 
 const ASTEROID_BASE_SPEED: f32 = 500;
+const BULLET_BASE_SPEED: f32 = 500;
 
 const WINDOW_WIDTH: u16 = 800;
 const WINDOW_HEIGHT: u16 = 600;
@@ -51,8 +52,8 @@ pub fn isThrusterOn() bool {
     return false;
 }
 pub fn isShooting() bool {
-    std.debug.print("Shoot!", .{});
-    return raylib.IsKeyPressed(raylib.KEY_SPACE);
+    // std.debug.print("Shoot!", .{});
+    return raylib.IsKeyDown(raylib.KEY_SPACE);
 }
 
 pub const Transform2D = struct {
@@ -72,6 +73,11 @@ pub const Transform2D = struct {
         const cos = std.math.cos(self.rotation);
         const sin = std.math.sin(self.rotation);
         return raylib.Vector2{ .x = sin, .y = cos };
+    }
+
+    pub fn update(self: *Transform2D, dt: f32) void {
+        self.position.x += self.velocity.x * dt;
+        self.position.y += self.velocity.y * dt;
     }
 };
 
@@ -104,6 +110,15 @@ const Spaceship = struct {
     }
 };
 
+const Bullet = struct {
+    transform: Transform2D,
+    size: f32,
+
+    pub fn draw(self: *const Bullet) void {
+        raylib.DrawCircleLinesV(self.transform.position, self.size, raylib.GRAY);
+    }
+};
+
 const Asteroid = struct {
     transform: Transform2D,
     size: f32,
@@ -119,13 +134,6 @@ const Asteroid = struct {
             return true;
         }
         return false;
-    }
-
-    pub fn updatePosition(self: *Asteroid, dt: f32) void {
-        // Apply Velocity
-        self.transform.position.x += self.transform.velocity.x * dt;
-        self.transform.position.y += self.transform.velocity.y * dt;
-        // std.debug.print("Updating {} {} -> {} {}", .{ self.transform.position.x, self.transform.position.y, self.transform.velocity.x, self.transform.velocity.y });
     }
 };
 
@@ -157,7 +165,7 @@ const Zone = struct {
     bounds: raylib.Rectangle,
 };
 
-pub fn UpdatePlayer(dt: f32, ship: *Spaceship) void {
+pub fn UpdatePlayer(dt: f32, ship: *Spaceship, bullets: *std.ArrayList(Bullet)) !void {
     if (isTurnLeft()) {
         ship.transform.rotation -= ROTATION_SPEED * dt;
     }
@@ -177,6 +185,20 @@ pub fn UpdatePlayer(dt: f32, ship: *Spaceship) void {
     // Apply Velocity
     ship.transform.position.x += ship.transform.velocity.x * dt;
     ship.transform.position.y += ship.transform.velocity.y * dt;
+    if (isShooting()) {
+        const direction = raylib.Vector2Rotate(raylib.Vector2Normalize(ship.transform.velocity), ship.transform.rotation);
+        try bullets.append(Bullet{
+            .transform = Transform2D{
+                .position = ship.transform.position,
+                .rotation = 0,
+                .velocity = raylib.Vector2Add(
+                    ship.transform.velocity,
+                    raylib.Vector2Scale(direction, BULLET_BASE_SPEED),
+                ),
+            },
+            .size = 2,
+        });
+    }
     // Thrust decay
     ship.transform.velocity.x *= 0.999;
     ship.transform.velocity.y *= 0.999;
@@ -221,11 +243,11 @@ pub fn GetNewAsteroid(rng: *const std.Random, cam: *Camera2D) Asteroid {
     spawnFrom = raylib.Vector2Add(cam.target, spawnFrom);
 
     if (DEBUG) {
-        std.debug.print("Cam offset: {d:.2}, {d:.2}", .{ cam.offset.x, cam.offset.y });
-        std.debug.print(
-            "Spawning asteroid at ({d:.2}, {d:.2}) heading toward ({d:.2}, {d:.2})\n",
-            .{ spawnFrom.x, spawnFrom.y, velocity.x, velocity.y },
-        );
+        // std.debug.print("Cam offset: {d:.2}, {d:.2}", .{ cam.offset.x, cam.offset.y });
+        //std.debug.print(
+        //    "Spawning asteroid at ({d:.2}, {d:.2}) heading toward ({d:.2}, {d:.2})\n",
+        //    .{ spawnFrom.x, spawnFrom.y, velocity.x, velocity.y },
+        //);
     }
 
     return Asteroid{
@@ -274,13 +296,16 @@ pub fn main() !void {
     var asteroids = std.ArrayList(Asteroid).init(allocator);
     defer asteroids.deinit();
 
+    var bullets = std.ArrayList(Bullet).init(allocator);
+    defer bullets.deinit();
+
     while (!raylib.WindowShouldClose()) {
         raylib.BeginDrawing();
         raylib.ClearBackground(raylib.BLACK);
 
         //Update
         const dt = raylib.GetFrameTime();
-        UpdatePlayer(dt, &ship);
+        try UpdatePlayer(dt, &ship, &bullets);
         UpdateCamera(&camera, ship.transform.position);
 
         var i: usize = asteroids.items.len;
@@ -291,13 +316,19 @@ pub fn main() !void {
                 _ = asteroids.swapRemove(i);
                 // std.debug.print("Kill Asteroid {}", .{i});
             } else {
-                asteroids.items[i].updatePosition(dt);
+                asteroids.items[i].transform.update(dt);
                 // asteroid.transform.position.x += asteroid.size
                 // std.debug.print("Updated Asteroid {}", .{i});
             }
         }
         if (asteroids.items.len < 8) {
             try asteroids.append(GetNewAsteroid(&rand, &camera));
+        }
+
+        i = bullets.items.len;
+        while (i > 0) {
+            i -= 1;
+            bullets.items[i].transform.update(dt);
         }
 
         //Draw
@@ -316,6 +347,9 @@ pub fn main() !void {
 
         for (asteroids.items) |asteroid| {
             asteroid.draw();
+        }
+        for (bullets.items) |bullet| {
+            bullet.draw();
         }
 
         for (zones.items) |zone| {
