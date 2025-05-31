@@ -8,6 +8,8 @@ const DEBUG: bool = true;
 const THRUST_STRENGTH: f32 = 500;
 const ROTATION_SPEED: f32 = 2.5;
 
+const ASTEROID_BASE_SPEED: f32 = 500;
+
 const WINDOW_WIDTH: u16 = 800;
 const WINDOW_HEIGHT: u16 = 600;
 const DEAD_ZONE = raylib.Rectangle{
@@ -111,7 +113,7 @@ const Asteroid = struct {
     }
 
     pub fn checkForDelete(self: *Asteroid, camera: *Camera2D) bool {
-        const vectorToCam = raylib.Vector2Subtract(camera.offset, self.transform.position);
+        const vectorToCam = raylib.Vector2Subtract(camera.target, self.transform.position);
         const distToCam = raylib.Vector2Length(vectorToCam);
         if (distToCam >= KILL_RADIUS) {
             return true;
@@ -123,6 +125,7 @@ const Asteroid = struct {
         // Apply Velocity
         self.transform.position.x += self.transform.velocity.x * dt;
         self.transform.position.y += self.transform.velocity.y * dt;
+        // std.debug.print("Updating {} {} -> {} {}", .{ self.transform.position.x, self.transform.position.y, self.transform.velocity.x, self.transform.velocity.y });
     }
 };
 
@@ -206,19 +209,19 @@ fn rotateVector(v: raylib.Vector2, angle: f32) raylib.Vector2 {
 }
 
 pub fn GetNewAsteroid(rng: *const std.Random, cam: *Camera2D) Asteroid {
-    var spawnFrom = raylib.Vector2{ .x = rng.float(f32), .y = rng.float(f32) };
-    spawnFrom = raylib.Vector2Normalize(spawnFrom);
-    spawnFrom = raylib.Vector2Add(
-        cam.offset,
-        raylib.Vector2Multiply(spawnFrom, raylib.Vector2{ .x = SPAWN_RADIUS, .y = SPAWN_RADIUS }),
-    );
+    const spawnDirection = raylib.Vector2{ .x = rng.float(f32), .y = rng.float(f32) };
+    var spawnFrom = raylib.Vector2Normalize(spawnDirection);
 
     const angle = rng.float(f32) * std.math.pi - (std.math.pi / 2.0); // ±90°
     const inverted = raylib.Vector2{ .x = spawnFrom.x * -1, .y = spawnFrom.y * -1 };
-    const direction = rotateVector(inverted, angle);
-    const velocity = raylib.Vector2{ .x = direction.x, .y = direction.y };
+    const move_direction = raylib.Vector2Normalize(rotateVector(inverted, angle));
+    const velocity = raylib.Vector2{ .x = move_direction.x * ASTEROID_BASE_SPEED, .y = move_direction.y * ASTEROID_BASE_SPEED };
+
+    spawnFrom = raylib.Vector2Multiply(spawnFrom, raylib.Vector2{ .x = SPAWN_RADIUS, .y = SPAWN_RADIUS });
+    spawnFrom = raylib.Vector2Add(cam.target, spawnFrom);
 
     if (DEBUG) {
+        std.debug.print("Cam offset: {d:.2}, {d:.2}", .{ cam.offset.x, cam.offset.y });
         std.debug.print(
             "Spawning asteroid at ({d:.2}, {d:.2}) heading toward ({d:.2}, {d:.2})\n",
             .{ spawnFrom.x, spawnFrom.y, velocity.x, velocity.y },
@@ -283,15 +286,19 @@ pub fn main() !void {
         var i: usize = asteroids.items.len;
         while (i > 0) {
             i -= 1;
-            var asteroid = asteroids.items[i];
-            if (asteroid.checkForDelete(&camera) == true) {
+            if (asteroids.items[i].checkForDelete(&camera)) {
                 // allocator.destroy(Asteroid);
                 _ = asteroids.swapRemove(i);
+                // std.debug.print("Kill Asteroid {}", .{i});
             } else {
-                asteroid.updatePosition(dt);
+                asteroids.items[i].updatePosition(dt);
+                // asteroid.transform.position.x += asteroid.size
+                // std.debug.print("Updated Asteroid {}", .{i});
             }
         }
-        try asteroids.append(GetNewAsteroid(&rand, &camera));
+        if (asteroids.items.len < 8) {
+            try asteroids.append(GetNewAsteroid(&rand, &camera));
+        }
 
         //Draw
         // Draw with camera
@@ -326,8 +333,12 @@ pub fn main() !void {
             const num_asteroids = try std.fmt.allocPrint(allocator, "Asteroids: {d}", .{asteroids.items.len});
             defer allocator.free(num_asteroids);
 
+            const camera_info = try std.fmt.allocPrint(allocator, "Camera: target({d}.{d}) offset({d},{d})", .{ camera.target.x, camera.target.y, camera.offset.x, camera.offset.y });
+            defer allocator.free(camera_info);
+
             raylib.DrawText(formatted.ptr, @intFromFloat(0), @intFromFloat(0), 20, raylib.GRAY);
             raylib.DrawText(num_asteroids.ptr, @intFromFloat(0), @intFromFloat(25), 20, raylib.GRAY);
+            raylib.DrawText(camera_info.ptr, @intFromFloat(0), @intFromFloat(50), 20, raylib.GRAY);
         }
         // (Optional) draw UI / HUD here (in screen space)
 
