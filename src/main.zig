@@ -7,17 +7,18 @@ const raylib = @cImport({
 const DEBUG: bool = true;
 const THRUST_STRENGTH: f32 = 500;
 const ROTATION_SPEED: f32 = 2.5;
+const SHOOT_INTERVAL: f32 = 0.1;
 
-const ASTEROID_BASE_SPEED: f32 = 500;
+const ASTEROID_BASE_SPEED: f32 = 300;
 const BULLET_BASE_SPEED: f32 = 500;
 
-const WINDOW_WIDTH: u16 = 800;
-const WINDOW_HEIGHT: u16 = 600;
+const WINDOW_WIDTH: u16 = 1920;
+const WINDOW_HEIGHT: u16 = 1080;
 const DEAD_ZONE = raylib.Rectangle{
-    .x = 200,
-    .y = 150,
-    .width = 400,
-    .height = 300,
+    .x = (1920 - 1280) / 2,
+    .y = (1080 - 720) / 2,
+    .width = 1280,
+    .height = 720,
 };
 
 const NUM_STARS: u16 = 500;
@@ -72,7 +73,7 @@ pub const Transform2D = struct {
     pub fn forward(self: *const Transform2D) raylib.Vector2 {
         const cos = std.math.cos(self.rotation);
         const sin = std.math.sin(self.rotation);
-        return raylib.Vector2{ .x = sin, .y = cos };
+        return raylib.Vector2{ .x = sin, .y = -cos };
     }
 
     pub fn update(self: *Transform2D, dt: f32) void {
@@ -165,43 +166,50 @@ const Zone = struct {
     bounds: raylib.Rectangle,
 };
 
-pub fn UpdatePlayer(dt: f32, ship: *Spaceship, bullets: *std.ArrayList(Bullet)) !void {
+pub fn UpdatePlayer(dt: f32, ship: *Spaceship, bullets: *std.ArrayList(Bullet), bullets_last_shot: *f64) !void {
     if (isTurnLeft()) {
         ship.transform.rotation -= ROTATION_SPEED * dt;
     }
     if (isTurnRight()) {
         ship.transform.rotation += ROTATION_SPEED * dt;
     }
+    // const old_velocity = raylib.Vector2Length(ship.transform.velocity);
     if (isThrusterOn()) {
         const forward = ship.transform.forward();
+        // std.debug.print("Forward {d} {d}\n", .{ forward.x, forward.y });
         const thrust = raylib.Vector2{
             .x = forward.x * THRUST_STRENGTH * dt,
             .y = forward.y * THRUST_STRENGTH * dt,
         };
 
         ship.transform.velocity.x += thrust.x;
-        ship.transform.velocity.y -= thrust.y;
+        ship.transform.velocity.y += thrust.y;
     }
     // Apply Velocity
     ship.transform.position.x += ship.transform.velocity.x * dt;
     ship.transform.position.y += ship.transform.velocity.y * dt;
+    const current_time = raylib.GetTime();
     if (isShooting()) {
-        const direction = raylib.Vector2Rotate(raylib.Vector2Normalize(ship.transform.velocity), ship.transform.rotation);
-        try bullets.append(Bullet{
-            .transform = Transform2D{
-                .position = ship.transform.position,
-                .rotation = 0,
-                .velocity = raylib.Vector2Add(
-                    ship.transform.velocity,
-                    raylib.Vector2Scale(direction, BULLET_BASE_SPEED),
-                ),
-            },
-            .size = 2,
-        });
+        if (SHOOT_INTERVAL < current_time - bullets_last_shot.*) {
+            bullets_last_shot.* = current_time;
+            const direction = ship.transform.forward();
+            try bullets.append(Bullet{
+                .transform = Transform2D{
+                    .position = ship.transform.position,
+                    .rotation = 0,
+                    .velocity = raylib.Vector2Add(
+                        ship.transform.velocity,
+                        raylib.Vector2Scale(direction, BULLET_BASE_SPEED),
+                    ),
+                },
+                .size = 2,
+            });
+        }
     }
+
+    // std.debug.print("New velocity {d} -> {d}\n", .{ old_velocity, raylib.Vector2Length(ship.transform.velocity) });
     // Thrust decay
-    ship.transform.velocity.x *= 0.999;
-    ship.transform.velocity.y *= 0.999;
+    ship.transform.velocity = raylib.Vector2Scale(ship.transform.velocity, 1 - (0.4 * dt));
 }
 
 pub fn UpdateCamera(cam: *Camera2D, player_pos: raylib.Vector2) void {
@@ -220,6 +228,30 @@ pub fn UpdateCamera(cam: *Camera2D, player_pos: raylib.Vector2) void {
         cam.target.y -= DEAD_ZONE.y - screen_pos.y;
     } else if (screen_pos.y > DEAD_ZONE.y + DEAD_ZONE.height) {
         cam.target.y += screen_pos.y - (DEAD_ZONE.y + DEAD_ZONE.height);
+    }
+}
+
+pub fn CheckForBulletHit(
+    bullets: *std.ArrayList(Bullet),
+    asteroids: *std.ArrayList(Asteroid),
+) !void {
+    var i = asteroids.items.len;
+    while (i > 0) {
+        i -= 1;
+        var j = bullets.items.len;
+        while (j > 0) {
+            j -= 1;
+            const distance = raylib.Vector2Distance(
+                asteroids.items[i].transform.position,
+                bullets.items[j].transform.position,
+            );
+            if (distance < asteroids.items[i].size) {
+                // std.debug.print("Asteroid Hit", .{});
+                _ = asteroids.swapRemove(i);
+                _ = bullets.swapRemove(j);
+                break;
+            }
+        }
     }
 }
 
@@ -298,6 +330,7 @@ pub fn main() !void {
 
     var bullets = std.ArrayList(Bullet).init(allocator);
     defer bullets.deinit();
+    var bullets_last_shot: f64 = 0.0;
 
     while (!raylib.WindowShouldClose()) {
         raylib.BeginDrawing();
@@ -305,7 +338,7 @@ pub fn main() !void {
 
         //Update
         const dt = raylib.GetFrameTime();
-        try UpdatePlayer(dt, &ship, &bullets);
+        try UpdatePlayer(dt, &ship, &bullets, &bullets_last_shot);
         UpdateCamera(&camera, ship.transform.position);
 
         var i: usize = asteroids.items.len;
@@ -330,6 +363,7 @@ pub fn main() !void {
             i -= 1;
             bullets.items[i].transform.update(dt);
         }
+        try CheckForBulletHit(&bullets, &asteroids);
 
         //Draw
         // Draw with camera
