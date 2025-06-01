@@ -10,15 +10,23 @@ const ROTATION_SPEED: f32 = 2.5;
 const SHOOT_INTERVAL: f32 = 0.1;
 
 const ASTEROID_BASE_SPEED: f32 = 300;
+const ASTEROID_MINIMUM_SIZE: f32 = 20;
+const ASTEROID_MAXIMUM_SIZE: f32 = 200;
+const ASTEROID_SPAWN_CHANCE: f32 = 0.1;
+const ASTEROID_STOP_SPAWN_COUNT: u16 = 40;
+const ASTEROID_SPAWN_INTERVAL: f32 = 0.5;
+
 const BULLET_BASE_SPEED: f32 = 500;
 
 const WINDOW_WIDTH: u16 = 1920;
 const WINDOW_HEIGHT: u16 = 1080;
+const DEAD_ZONE_WIDTH: u16 = 1000;
+const DEAD_ZONE_HEIGHT: u16 = 600;
 const DEAD_ZONE = raylib.Rectangle{
-    .x = (1920 - 1280) / 2,
-    .y = (1080 - 720) / 2,
-    .width = 1280,
-    .height = 720,
+    .x = (WINDOW_WIDTH - DEAD_ZONE_WIDTH) / 2,
+    .y = (WINDOW_HEIGHT - DEAD_ZONE_HEIGHT) / 2,
+    .width = DEAD_ZONE_WIDTH,
+    .height = DEAD_ZONE_HEIGHT,
 };
 
 const NUM_STARS: u16 = 500;
@@ -26,8 +34,8 @@ const STAR_AREA: u16 = 3000;
 
 const ZONE_SIZE_WORLD = 2048;
 
-const SPAWN_RADIUS: u16 = 1000;
-const KILL_RADIUS: u16 = 1200;
+const SPAWN_RADIUS: u16 = 1500;
+const KILL_RADIUS: u16 = 1600;
 
 var stars: [NUM_STARS]raylib.Vector3 = undefined;
 
@@ -263,7 +271,7 @@ fn rotateVector(v: raylib.Vector2, angle: f32) raylib.Vector2 {
 }
 
 pub fn GetNewAsteroid(rng: *const std.Random, cam: *Camera2D) Asteroid {
-    const spawnDirection = raylib.Vector2{ .x = rng.float(f32), .y = rng.float(f32) };
+    const spawnDirection = raylib.Vector2{ .x = raylib.Lerp(-1, 1, rng.float(f32)), .y = raylib.Lerp(-1, 1, rng.float(f32)) };
     var spawnFrom = raylib.Vector2Normalize(spawnDirection);
 
     const angle = rng.float(f32) * std.math.pi - (std.math.pi / 2.0); // ±90°
@@ -284,7 +292,8 @@ pub fn GetNewAsteroid(rng: *const std.Random, cam: *Camera2D) Asteroid {
 
     return Asteroid{
         .transform = Transform2D{ .position = spawnFrom, .velocity = velocity, .rotation = 0 },
-        .size = 20 + rng.float(f32) * 20,
+        // .size = 20 + rng.float(f32) * 20,
+        .size = raylib.Lerp(ASTEROID_MINIMUM_SIZE, ASTEROID_MAXIMUM_SIZE, rng.float(f32)),
     };
 }
 
@@ -327,6 +336,7 @@ pub fn main() !void {
 
     var asteroids = std.ArrayList(Asteroid).init(allocator);
     defer asteroids.deinit();
+    var asteroid_last_spawn: f64 = 0.0;
 
     var bullets = std.ArrayList(Bullet).init(allocator);
     defer bullets.deinit();
@@ -354,8 +364,13 @@ pub fn main() !void {
                 // std.debug.print("Updated Asteroid {}", .{i});
             }
         }
-        if (asteroids.items.len < 8) {
-            try asteroids.append(GetNewAsteroid(&rand, &camera));
+
+        const current_time = raylib.GetTime();
+        if (ASTEROID_SPAWN_INTERVAL < current_time - asteroid_last_spawn) {
+            if (rand.float(f32) < ASTEROID_SPAWN_CHANCE) {
+                asteroid_last_spawn = current_time;
+                try asteroids.append(GetNewAsteroid(&rand, &camera));
+            }
         }
 
         i = bullets.items.len;
