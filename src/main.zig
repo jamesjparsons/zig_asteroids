@@ -98,6 +98,19 @@ const Spaceship = struct {
     };
     transform: Transform2D,
 
+    pub fn getShipBody(self: *Spaceship) [3]raylib.Vector2 {
+        var body: [3]raylib.Vector2 = undefined;
+        for (ship_body, 0..) |point, i| {
+            const cos = self.transform.cos_theta();
+            const sin = self.transform.sin_theta();
+            body[i] = raylib.Vector2{
+                .x = self.transform.position.x + cos * point.x - sin * point.y,
+                .y = self.transform.position.y + sin * point.x + cos * point.y,
+            };
+        }
+        return body;
+    }
+
     pub fn draw(self: *Spaceship) void {
         const body = ship_body;
         for (body, 0..) |_, i| {
@@ -174,7 +187,12 @@ const Zone = struct {
     bounds: raylib.Rectangle,
 };
 
-pub fn UpdatePlayer(dt: f32, ship: *Spaceship, bullets: *std.ArrayList(Bullet), bullets_last_shot: *f64) !void {
+pub fn UpdatePlayer(
+    dt: f32,
+    ship: *Spaceship,
+    bullets: *std.ArrayList(Bullet),
+    bullets_last_shot: *f64,
+) !void {
     if (isTurnLeft()) {
         ship.transform.rotation -= ROTATION_SPEED * dt;
     }
@@ -239,6 +257,41 @@ pub fn UpdateCamera(cam: *Camera2D, player_pos: raylib.Vector2) void {
     }
 }
 
+pub fn UpdateAsteroids(
+    asteroids: *std.ArrayList(Asteroid),
+    camera: *Camera2D,
+    dt: f32,
+) void {
+    var i: usize = asteroids.items.len;
+    while (i > 0) {
+        i -= 1;
+        if (asteroids.items[i].checkForDelete(camera)) {
+            // allocator.destroy(Asteroid);
+            _ = asteroids.swapRemove(i);
+            // std.debug.print("Kill Asteroid {}", .{i});
+        } else {
+            asteroids.items[i].transform.update(dt);
+            // asteroid.transform.position.x += asteroid.size
+            // std.debug.print("Updated Asteroid {}", .{i});
+        }
+    }
+}
+
+pub fn SpawnAsteroids(
+    asteroid_last_spawn: *f64,
+    asteroids: *std.ArrayList(Asteroid),
+    rand: *const std.Random,
+    camera: *Camera2D,
+) !void {
+    const current_time = raylib.GetTime();
+    if (ASTEROID_SPAWN_INTERVAL < current_time - asteroid_last_spawn.*) {
+        if (rand.float(f32) < ASTEROID_SPAWN_CHANCE) {
+            asteroid_last_spawn.* = current_time;
+            try asteroids.append(GetNewAsteroid(rand, camera));
+        }
+    }
+}
+
 pub fn CheckForBulletHit(
     bullets: *std.ArrayList(Bullet),
     asteroids: *std.ArrayList(Asteroid),
@@ -263,6 +316,18 @@ pub fn CheckForBulletHit(
     }
 }
 
+pub fn CheckForHitsOnShip(ship: *Spaceship, asteroids: *std.ArrayList(Asteroid)) bool {
+    const ship_body = ship.getShipBody();
+    for (asteroids.items) |asteroid| {
+        for (ship_body) |point| {
+            if (raylib.Vector2Distance(asteroid.transform.position, point) < asteroid.size) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 fn rotateVector(v: raylib.Vector2, angle: f32) raylib.Vector2 {
     return raylib.Vector2{
         .x = v.x * @cos(angle) - v.y * @sin(angle),
@@ -271,15 +336,24 @@ fn rotateVector(v: raylib.Vector2, angle: f32) raylib.Vector2 {
 }
 
 pub fn GetNewAsteroid(rng: *const std.Random, cam: *Camera2D) Asteroid {
-    const spawnDirection = raylib.Vector2{ .x = raylib.Lerp(-1, 1, rng.float(f32)), .y = raylib.Lerp(-1, 1, rng.float(f32)) };
+    const spawnDirection = raylib.Vector2{
+        .x = raylib.Lerp(-1, 1, rng.float(f32)),
+        .y = raylib.Lerp(-1, 1, rng.float(f32)),
+    };
     var spawnFrom = raylib.Vector2Normalize(spawnDirection);
 
     const angle = rng.float(f32) * std.math.pi - (std.math.pi / 2.0); // ±90°
     const inverted = raylib.Vector2{ .x = spawnFrom.x * -1, .y = spawnFrom.y * -1 };
     const move_direction = raylib.Vector2Normalize(rotateVector(inverted, angle));
-    const velocity = raylib.Vector2{ .x = move_direction.x * ASTEROID_BASE_SPEED, .y = move_direction.y * ASTEROID_BASE_SPEED };
+    const velocity = raylib.Vector2{
+        .x = move_direction.x * ASTEROID_BASE_SPEED,
+        .y = move_direction.y * ASTEROID_BASE_SPEED,
+    };
 
-    spawnFrom = raylib.Vector2Multiply(spawnFrom, raylib.Vector2{ .x = SPAWN_RADIUS, .y = SPAWN_RADIUS });
+    spawnFrom = raylib.Vector2Multiply(spawnFrom, raylib.Vector2{
+        .x = SPAWN_RADIUS,
+        .y = SPAWN_RADIUS,
+    });
     spawnFrom = raylib.Vector2Add(cam.target, spawnFrom);
 
     if (DEBUG) {
@@ -291,9 +365,17 @@ pub fn GetNewAsteroid(rng: *const std.Random, cam: *Camera2D) Asteroid {
     }
 
     return Asteroid{
-        .transform = Transform2D{ .position = spawnFrom, .velocity = velocity, .rotation = 0 },
+        .transform = Transform2D{
+            .position = spawnFrom,
+            .velocity = velocity,
+            .rotation = 0,
+        },
         // .size = 20 + rng.float(f32) * 20,
-        .size = raylib.Lerp(ASTEROID_MINIMUM_SIZE, ASTEROID_MAXIMUM_SIZE, rng.float(f32)),
+        .size = raylib.Lerp(
+            ASTEROID_MINIMUM_SIZE,
+            ASTEROID_MAXIMUM_SIZE,
+            rng.float(f32),
+        ),
     };
 }
 
@@ -301,130 +383,120 @@ pub fn main() !void {
     raylib.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Zig + raylib Minimal");
     defer raylib.CloseWindow();
 
-    var ship = Spaceship{ .transform = .{
-        .position = raylib.Vector2{ .x = 0, .y = 0 },
-        .rotation = 0,
-        .velocity = raylib.Vector2{ .x = 0, .y = 0 },
-    } };
-
-    var camera = Camera2D.init(WINDOW_WIDTH, WINDOW_HEIGHT);
-
+    // Init system variables
     var seed: u64 = undefined;
     std.posix.getrandom(std.mem.asBytes(&seed)) catch |err| {
         std.debug.print("Failed to get random seed: {}\n", .{err});
         return;
     };
-
     var prng = std.Random.DefaultPrng.init(seed);
     const rand = prng.random();
-
-    for (&stars) |*star| {
-        star.* = raylib.Vector3{ .x = rand.float(f32) * STAR_AREA - STAR_AREA / 2, .y = rand.float(f32) * STAR_AREA - STAR_AREA / 2, .z = rand.float(f32) / 2 + 0.5 };
-    }
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
-    var zones = std.ArrayList(Zone).init(allocator);
-    defer zones.deinit();
-    try zones.append(Zone{ .name = "Home", .bounds = raylib.Rectangle{
-        .x = -1,
-        .y = -1,
-        .width = 2,
-        .height = 2,
-    } });
-
-    var asteroids = std.ArrayList(Asteroid).init(allocator);
-    defer asteroids.deinit();
-    var asteroid_last_spawn: f64 = 0.0;
-
-    var bullets = std.ArrayList(Bullet).init(allocator);
-    defer bullets.deinit();
-    var bullets_last_shot: f64 = 0.0;
-
     while (!raylib.WindowShouldClose()) {
-        raylib.BeginDrawing();
-        raylib.ClearBackground(raylib.BLACK);
+        var playerIsAlive = true;
+        // Init game instance
+        var ship = Spaceship{ .transform = .{
+            .position = raylib.Vector2{ .x = 0, .y = 0 },
+            .rotation = 0,
+            .velocity = raylib.Vector2{ .x = 0, .y = 0 },
+        } };
 
-        //Update
-        const dt = raylib.GetFrameTime();
-        try UpdatePlayer(dt, &ship, &bullets, &bullets_last_shot);
-        UpdateCamera(&camera, ship.transform.position);
+        var camera = Camera2D.init(WINDOW_WIDTH, WINDOW_HEIGHT);
+        // defer camera.deinit();
 
-        var i: usize = asteroids.items.len;
-        while (i > 0) {
-            i -= 1;
-            if (asteroids.items[i].checkForDelete(&camera)) {
-                // allocator.destroy(Asteroid);
-                _ = asteroids.swapRemove(i);
-                // std.debug.print("Kill Asteroid {}", .{i});
-            } else {
-                asteroids.items[i].transform.update(dt);
-                // asteroid.transform.position.x += asteroid.size
-                // std.debug.print("Updated Asteroid {}", .{i});
-            }
-        }
-
-        const current_time = raylib.GetTime();
-        if (ASTEROID_SPAWN_INTERVAL < current_time - asteroid_last_spawn) {
-            if (rand.float(f32) < ASTEROID_SPAWN_CHANCE) {
-                asteroid_last_spawn = current_time;
-                try asteroids.append(GetNewAsteroid(&rand, &camera));
-            }
-        }
-
-        i = bullets.items.len;
-        while (i > 0) {
-            i -= 1;
-            bullets.items[i].transform.update(dt);
-        }
-        try CheckForBulletHit(&bullets, &asteroids);
-
-        //Draw
-        // Draw with camera
-        raylib.BeginMode2D(camera.toRaylib());
-
-        for (stars) |star| {
-            const parallax_pos = raylib.Vector2{
-                .x = star.x * star.z,
-                .y = star.y * star.z,
+        for (&stars) |*star| {
+            star.* = raylib.Vector3{
+                .x = rand.float(f32) * STAR_AREA - STAR_AREA / 2,
+                .y = rand.float(f32) * STAR_AREA - STAR_AREA / 2,
+                .z = rand.float(f32) / 2 + 0.5,
             };
-            raylib.DrawRectangleV(parallax_pos, raylib.Vector2{ .x = 2, .y = 2 }, raylib.GRAY);
         }
 
-        ship.draw();
+        var zones = std.ArrayList(Zone).init(allocator);
+        defer zones.deinit();
+        try zones.append(Zone{ .name = "Home", .bounds = raylib.Rectangle{
+            .x = -1,
+            .y = -1,
+            .width = 2,
+            .height = 2,
+        } });
 
-        for (asteroids.items) |asteroid| {
-            asteroid.draw();
+        var asteroids = std.ArrayList(Asteroid).init(allocator);
+        defer asteroids.deinit();
+        var asteroid_last_spawn: f64 = 0.0;
+
+        var bullets = std.ArrayList(Bullet).init(allocator);
+        defer bullets.deinit();
+        var bullets_last_shot: f64 = 0.0;
+
+        while (playerIsAlive and !raylib.WindowShouldClose()) {
+
+            //Update
+            const dt = raylib.GetFrameTime();
+            try UpdatePlayer(dt, &ship, &bullets, &bullets_last_shot);
+            UpdateCamera(&camera, ship.transform.position);
+            UpdateAsteroids(&asteroids, &camera, dt);
+            try SpawnAsteroids(&asteroid_last_spawn, &asteroids, &rand, &camera);
+
+            var i = bullets.items.len;
+            while (i > 0) {
+                i -= 1;
+                bullets.items[i].transform.update(dt);
+            }
+            try CheckForBulletHit(&bullets, &asteroids);
+            playerIsAlive = !CheckForHitsOnShip(&ship, &asteroids);
+
+            //Draw
+            raylib.BeginDrawing();
+            raylib.ClearBackground(raylib.BLACK);
+            // Draw with camera
+            raylib.BeginMode2D(camera.toRaylib());
+
+            for (stars) |star| {
+                const parallax_pos = raylib.Vector2{
+                    .x = star.x * star.z,
+                    .y = star.y * star.z,
+                };
+                raylib.DrawRectangleV(parallax_pos, raylib.Vector2{ .x = 2, .y = 2 }, raylib.GRAY);
+            }
+
+            ship.draw();
+
+            for (asteroids.items) |asteroid| {
+                asteroid.draw();
+            }
+            for (bullets.items) |bullet| {
+                bullet.draw();
+            }
+
+            for (zones.items) |zone| {
+                raylib.DrawRectangleLines(@intFromFloat(zone.bounds.x * ZONE_SIZE_WORLD), @intFromFloat(zone.bounds.y * ZONE_SIZE_WORLD), @intFromFloat(zone.bounds.width * ZONE_SIZE_WORLD), @intFromFloat(zone.bounds.height * ZONE_SIZE_WORLD), raylib.BLUE);
+            }
+
+            raylib.EndMode2D();
+
+            // (Optional) draw world space debug stuff here
+            if (DEBUG) {
+                raylib.DrawRectangleLines(@intFromFloat(DEAD_ZONE.x), @intFromFloat(DEAD_ZONE.y), @intFromFloat(DEAD_ZONE.width), @intFromFloat(DEAD_ZONE.height), raylib.GRAY);
+                const formatted = try std.fmt.allocPrint(allocator, "Cell ({d}, {d})", .{ std.math.floor(ship.transform.position.x / ZONE_SIZE_WORLD), std.math.floor(ship.transform.position.y / ZONE_SIZE_WORLD) });
+                defer allocator.free(formatted);
+
+                const num_asteroids = try std.fmt.allocPrint(allocator, "Asteroids: {d}", .{asteroids.items.len});
+                defer allocator.free(num_asteroids);
+
+                const camera_info = try std.fmt.allocPrint(allocator, "Camera: target({d}.{d}) offset({d},{d})", .{ camera.target.x, camera.target.y, camera.offset.x, camera.offset.y });
+                defer allocator.free(camera_info);
+
+                raylib.DrawText(formatted.ptr, @intFromFloat(0), @intFromFloat(0), 20, raylib.GRAY);
+                raylib.DrawText(num_asteroids.ptr, @intFromFloat(0), @intFromFloat(25), 20, raylib.GRAY);
+                raylib.DrawText(camera_info.ptr, @intFromFloat(0), @intFromFloat(50), 20, raylib.GRAY);
+            }
+            // (Optional) draw UI / HUD here (in screen space)
+
+            raylib.EndDrawing();
         }
-        for (bullets.items) |bullet| {
-            bullet.draw();
-        }
-
-        for (zones.items) |zone| {
-            raylib.DrawRectangleLines(@intFromFloat(zone.bounds.x * ZONE_SIZE_WORLD), @intFromFloat(zone.bounds.y * ZONE_SIZE_WORLD), @intFromFloat(zone.bounds.width * ZONE_SIZE_WORLD), @intFromFloat(zone.bounds.height * ZONE_SIZE_WORLD), raylib.BLUE);
-        }
-
-        raylib.EndMode2D();
-
-        // (Optional) draw world space debug stuff here
-        if (DEBUG) {
-            raylib.DrawRectangleLines(@intFromFloat(DEAD_ZONE.x), @intFromFloat(DEAD_ZONE.y), @intFromFloat(DEAD_ZONE.width), @intFromFloat(DEAD_ZONE.height), raylib.GRAY);
-            const formatted = try std.fmt.allocPrint(allocator, "Cell ({d}, {d})", .{ std.math.floor(ship.transform.position.x / ZONE_SIZE_WORLD), std.math.floor(ship.transform.position.y / ZONE_SIZE_WORLD) });
-            defer allocator.free(formatted);
-
-            const num_asteroids = try std.fmt.allocPrint(allocator, "Asteroids: {d}", .{asteroids.items.len});
-            defer allocator.free(num_asteroids);
-
-            const camera_info = try std.fmt.allocPrint(allocator, "Camera: target({d}.{d}) offset({d},{d})", .{ camera.target.x, camera.target.y, camera.offset.x, camera.offset.y });
-            defer allocator.free(camera_info);
-
-            raylib.DrawText(formatted.ptr, @intFromFloat(0), @intFromFloat(0), 20, raylib.GRAY);
-            raylib.DrawText(num_asteroids.ptr, @intFromFloat(0), @intFromFloat(25), 20, raylib.GRAY);
-            raylib.DrawText(camera_info.ptr, @intFromFloat(0), @intFromFloat(50), 20, raylib.GRAY);
-        }
-        // (Optional) draw UI / HUD here (in screen space)
-
-        raylib.EndDrawing();
     }
 }
