@@ -47,6 +47,7 @@ pub const GameState = struct {
     asteroid_last_spawn: f64,
     playerIsAlive: bool,
     zones: std.ArrayList(Zone),
+    zones_map: std.AutoHashMap([2]i16, *Zone),
     mode: GameMode,
 };
 var STATE: GameState = undefined;
@@ -374,16 +375,21 @@ pub fn initializeGame() !void {
     STATE.bullets = std.ArrayList(Bullet).init(UTILS.allocator);
     STATE.bullets_last_shot = 0.0;
 
-    STATE.zones = std.ArrayList(Zone).init(UTILS.allocator);
-
     STATE.mode = GameMode.game;
 
+    STATE.zones = std.ArrayList(Zone).init(UTILS.allocator);
     try STATE.zones.append(Zone{ .name = "Home", .bounds = raylib.Rectangle{
         .x = -1,
         .y = -1,
         .width = 2,
         .height = 2,
     } });
+
+    STATE.zones_map = std.AutoHashMap([2]i16, *Zone).init(UTILS.allocator);
+    try STATE.zones_map.put(.{ 0, 0 }, &STATE.zones.items[0]);
+    try STATE.zones_map.put(.{ -1, 0 }, &STATE.zones.items[0]);
+    try STATE.zones_map.put(.{ 0, -1 }, &STATE.zones.items[0]);
+    try STATE.zones_map.put(.{ -1, -1 }, &STATE.zones.items[0]);
 }
 
 pub fn drawGame() !void {
@@ -460,7 +466,7 @@ pub fn drawGame() !void {
 
         raylib.drawText(
             raylib.textFormat(
-                "Cell ({d}, {d})",
+                "Cell (%i, %i)",
                 .{
                     std.math.floor(STATE.player.transform.position.x / ZONE_SIZE_WORLD),
                     std.math.floor(STATE.player.transform.position.y / ZONE_SIZE_WORLD),
@@ -473,7 +479,7 @@ pub fn drawGame() !void {
         );
         raylib.drawText(
             raylib.textFormat(
-                "Asteroids: {d}",
+                "Asteroids: %i",
                 .{STATE.asteroids.items.len},
             ),
             @intFromFloat(0),
@@ -483,7 +489,7 @@ pub fn drawGame() !void {
         );
         raylib.drawText(
             raylib.textFormat(
-                "Camera: target({d}.{d}) offset({d},{d})",
+                "Camera: target(%02.02f,%02.02f) offset(%02.02f,%02.02f)",
                 .{
                     STATE.camera.target.x,
                     STATE.camera.target.y,
