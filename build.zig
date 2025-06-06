@@ -1,4 +1,5 @@
 const std = @import("std");
+const raylib_build = @import("raylib");
 
 pub fn build(b: *std.Build) void {
     // 1) Pick up --target flags (e.g. --target, --cpu)
@@ -19,14 +20,25 @@ pub fn build(b: *std.Build) void {
         .root_module = exe_mod,
     });
 
-    // 5) Link the system-installed raylib
-    exe.linkSystemLibrary("raylib");
-    exe.linkSystemLibrary("GL");
-    exe.linkSystemLibrary("m");
-    exe.linkSystemLibrary("pthread");
-    exe.linkSystemLibrary("dl");
-    exe.linkSystemLibrary("rt");
-    exe.linkSystemLibrary("X11");
+    b.installArtifact(exe);
+
+    // RAYLIB INCLUDES
+
+    exe.addIncludePath(b.path("raygui"));
+
+    const raylib_dep = b.dependency("raylib_zig", .{
+        .target = target,
+        .optimize = optimize,
+        .linux_display_backend = .X11,
+    });
+
+    const raylib = raylib_dep.module("raylib"); // main raylib module
+    const raygui = raylib_dep.module("raygui"); // raygui module
+    const raylib_artifact = raylib_dep.artifact("raylib"); // raylib C library
+
+    exe.linkLibrary(raylib_artifact);
+    exe.root_module.addImport("raylib", raylib);
+    exe.root_module.addImport("raygui", raygui);
 
     // 6) Make `zig build run` work
     const run_cmd = b.addRunArtifact(exe);

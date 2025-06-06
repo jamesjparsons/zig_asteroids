@@ -1,8 +1,5 @@
 const std = @import("std");
-const raylib = @cImport({
-    @cInclude("raylib.h");
-    @cInclude("raymath.h");
-});
+const raylib = @import("raylib");
 
 const DEBUG: bool = true;
 const THRUST_STRENGTH: f32 = 500;
@@ -37,35 +34,9 @@ const ZONE_SIZE_WORLD = 2048;
 const SPAWN_RADIUS: u16 = 1500;
 const KILL_RADIUS: u16 = 1600;
 
-const GAME_MODE = enum { startMenu, game, paused, map };
+const GameMode = enum { startMenu, game, paused, map };
 
 var stars: [NUM_STARS]raylib.Vector3 = undefined;
-
-pub fn isTurnLeft() bool {
-    if (raylib.IsKeyDown(raylib.KEY_A) or raylib.IsKeyDown(raylib.KEY_LEFT)) {
-        // std.debug.print("Turning Left", .{});
-        return true;
-    }
-    return false;
-}
-pub fn isTurnRight() bool {
-    if (raylib.IsKeyDown(raylib.KEY_D) or raylib.IsKeyDown(raylib.KEY_RIGHT)) {
-        // std.debug.print("Turning Right", .{});
-        return true;
-    }
-    return false;
-}
-pub fn isThrusterOn() bool {
-    if (raylib.IsKeyDown(raylib.KEY_W) or raylib.IsKeyDown(raylib.KEY_UP)) {
-        // std.debug.print("Thrust", .{});
-        return true;
-    }
-    return false;
-}
-pub fn isShooting() bool {
-    // std.debug.print("Shoot!", .{});
-    return raylib.IsKeyDown(raylib.KEY_SPACE);
-}
 
 pub const GameState = struct {
     camera: Camera2D,
@@ -75,6 +46,8 @@ pub const GameState = struct {
     asteroids: std.ArrayList(Asteroid),
     asteroid_last_spawn: f64,
     playerIsAlive: bool,
+    zones: std.ArrayList(Zone),
+    mode: GameMode,
 };
 var STATE: GameState = undefined;
 
@@ -146,7 +119,7 @@ const Spaceship = struct {
                 .x = self.transform.position.x + self.transform.cos_theta() * local_q.x - self.transform.sin_theta() * local_q.y,
                 .y = self.transform.position.y + self.transform.sin_theta() * local_q.x + self.transform.cos_theta() * local_q.y,
             };
-            raylib.DrawLineV(p, q, raylib.RAYWHITE);
+            raylib.drawLineV(p, q, raylib.Color.white);
         }
     }
 };
@@ -156,7 +129,7 @@ const Bullet = struct {
     size: f32,
 
     pub fn draw(self: *const Bullet) void {
-        raylib.DrawCircleLinesV(self.transform.position, self.size, raylib.GRAY);
+        raylib.drawCircleLinesV(self.transform.position, self.size, raylib.Color.gray);
     }
 };
 
@@ -165,12 +138,12 @@ const Asteroid = struct {
     size: f32,
 
     pub fn draw(self: *const Asteroid) void {
-        raylib.DrawCircleLinesV(self.transform.position, self.size, raylib.GRAY);
+        raylib.drawCircleLinesV(self.transform.position, self.size, raylib.Color.gray);
     }
 
     pub fn checkForDelete(self: *Asteroid, camera: *Camera2D) bool {
-        const vectorToCam = raylib.Vector2Subtract(camera.target, self.transform.position);
-        const distToCam = raylib.Vector2Length(vectorToCam);
+        const vectorToCam = raylib.math.vector2Subtract(camera.target, self.transform.position);
+        const distToCam = raylib.math.vector2Length(vectorToCam);
         if (distToCam >= KILL_RADIUS) {
             return true;
         }
@@ -207,14 +180,16 @@ const Zone = struct {
 };
 
 pub fn UpdatePlayer(dt: f32) !void {
-    if (isTurnLeft()) {
+    // Turn Left
+    if (raylib.isKeyDown(raylib.KeyboardKey.a) or raylib.isKeyDown(raylib.KeyboardKey.left)) {
         STATE.player.transform.rotation -= ROTATION_SPEED * dt;
     }
-    if (isTurnRight()) {
+    // Turn Right
+    if (raylib.isKeyDown(raylib.KeyboardKey.d) or raylib.isKeyDown(raylib.KeyboardKey.right)) {
         STATE.player.transform.rotation += ROTATION_SPEED * dt;
     }
-    // const old_velocity = raylib.Vector2Length(ship.transform.velocity);
-    if (isThrusterOn()) {
+    // Thrust forward
+    if (raylib.isKeyDown(raylib.KeyboardKey.w) or raylib.isKeyDown(raylib.KeyboardKey.w)) {
         const forward = STATE.player.transform.forward();
         // std.debug.print("Forward {d} {d}\n", .{ forward.x, forward.y });
         const thrust = raylib.Vector2{
@@ -228,8 +203,10 @@ pub fn UpdatePlayer(dt: f32) !void {
     // Apply Velocity
     STATE.player.transform.position.x += STATE.player.transform.velocity.x * dt;
     STATE.player.transform.position.y += STATE.player.transform.velocity.y * dt;
-    const current_time = raylib.GetTime();
-    if (isShooting()) {
+    const current_time = raylib.getTime();
+
+    // Shoot
+    if (raylib.isKeyDown(raylib.KeyboardKey.space)) {
         if (SHOOT_INTERVAL < current_time - STATE.bullets_last_shot) {
             STATE.bullets_last_shot = current_time;
             const direction = STATE.player.transform.forward();
@@ -237,9 +214,9 @@ pub fn UpdatePlayer(dt: f32) !void {
                 .transform = Transform2D{
                     .position = STATE.player.transform.position,
                     .rotation = 0,
-                    .velocity = raylib.Vector2Add(
+                    .velocity = raylib.math.vector2Add(
                         STATE.player.transform.velocity,
-                        raylib.Vector2Scale(direction, BULLET_BASE_SPEED),
+                        raylib.math.vector2Scale(direction, BULLET_BASE_SPEED),
                     ),
                 },
                 .size = 2,
@@ -247,9 +224,8 @@ pub fn UpdatePlayer(dt: f32) !void {
         }
     }
 
-    // std.debug.print("New velocity {d} -> {d}\n", .{ old_velocity, raylib.Vector2Length(ship.transform.velocity) });
     // Thrust decay
-    STATE.player.transform.velocity = raylib.Vector2Scale(STATE.player.transform.velocity, 1 - (0.4 * dt));
+    STATE.player.transform.velocity = raylib.math.vector2Scale(STATE.player.transform.velocity, 1 - (0.4 * dt));
 }
 
 pub fn UpdateCamera() void {
@@ -289,7 +265,7 @@ pub fn UpdateAsteroids(dt: f32) void {
 }
 
 pub fn SpawnAsteroids() !void {
-    const current_time = raylib.GetTime();
+    const current_time = raylib.getTime();
     if (ASTEROID_SPAWN_INTERVAL < current_time - STATE.asteroid_last_spawn) {
         if (UTILS.rand.float(f32) < ASTEROID_SPAWN_CHANCE) {
             STATE.asteroid_last_spawn = current_time;
@@ -305,7 +281,7 @@ pub fn CheckForBulletHit() !void {
         var j = STATE.bullets.items.len;
         while (j > 0) {
             j -= 1;
-            const distance = raylib.Vector2Distance(
+            const distance = raylib.math.vector2Distance(
                 STATE.asteroids.items[i].transform.position,
                 STATE.bullets.items[j].transform.position,
             );
@@ -323,7 +299,7 @@ pub fn CheckForHitsOnShip() bool {
     const ship_body = STATE.player.getShipBody();
     for (STATE.asteroids.items) |asteroid| {
         for (ship_body) |point| {
-            if (raylib.Vector2Distance(asteroid.transform.position, point) < asteroid.size) {
+            if (raylib.math.vector2Distance(asteroid.transform.position, point) < asteroid.size) {
                 return true;
             }
         }
@@ -340,24 +316,24 @@ fn rotateVector(v: raylib.Vector2, angle: f32) raylib.Vector2 {
 
 pub fn GetNewAsteroid() Asteroid {
     const spawnDirection = raylib.Vector2{
-        .x = raylib.Lerp(-1, 1, UTILS.rand.float(f32)),
-        .y = raylib.Lerp(-1, 1, UTILS.rand.float(f32)),
+        .x = raylib.math.lerp(-1, 1, UTILS.rand.float(f32)),
+        .y = raylib.math.lerp(-1, 1, UTILS.rand.float(f32)),
     };
-    var spawnFrom = raylib.Vector2Normalize(spawnDirection);
+    var spawnFrom = raylib.math.vector2Normalize(spawnDirection);
 
     const angle = UTILS.rand.float(f32) * std.math.pi - (std.math.pi / 2.0); // ±90°
     const inverted = raylib.Vector2{ .x = spawnFrom.x * -1, .y = spawnFrom.y * -1 };
-    const move_direction = raylib.Vector2Normalize(rotateVector(inverted, angle));
+    const move_direction = raylib.math.vector2Normalize(rotateVector(inverted, angle));
     const velocity = raylib.Vector2{
         .x = move_direction.x * ASTEROID_BASE_SPEED,
         .y = move_direction.y * ASTEROID_BASE_SPEED,
     };
 
-    spawnFrom = raylib.Vector2Multiply(spawnFrom, raylib.Vector2{
+    spawnFrom = raylib.math.vector2Multiply(spawnFrom, raylib.Vector2{
         .x = SPAWN_RADIUS,
         .y = SPAWN_RADIUS,
     });
-    spawnFrom = raylib.Vector2Add(STATE.camera.target, spawnFrom);
+    spawnFrom = raylib.math.vector2Add(STATE.camera.target, spawnFrom);
 
     if (DEBUG) {
         // std.debug.print("Cam offset: {d:.2}, {d:.2}", .{ cam.offset.x, cam.offset.y });
@@ -374,7 +350,7 @@ pub fn GetNewAsteroid() Asteroid {
             .rotation = 0,
         },
         // .size = 20 + rng.float(f32) * 20,
-        .size = raylib.Lerp(
+        .size = raylib.math.lerp(
             ASTEROID_MINIMUM_SIZE,
             ASTEROID_MAXIMUM_SIZE,
             UTILS.rand.float(f32),
@@ -382,9 +358,150 @@ pub fn GetNewAsteroid() Asteroid {
     };
 }
 
+pub fn initializeGame() !void {
+    STATE.playerIsAlive = true;
+    STATE.player = Spaceship{ .transform = .{
+        .position = raylib.Vector2{ .x = 0, .y = 0 },
+        .rotation = 0,
+        .velocity = raylib.Vector2{ .x = 0, .y = 0 },
+    } };
+
+    STATE.camera = Camera2D.init(WINDOW_WIDTH, WINDOW_HEIGHT);
+
+    STATE.asteroids = std.ArrayList(Asteroid).init(UTILS.allocator);
+    STATE.asteroid_last_spawn = 0.0;
+
+    STATE.bullets = std.ArrayList(Bullet).init(UTILS.allocator);
+    STATE.bullets_last_shot = 0.0;
+
+    STATE.zones = std.ArrayList(Zone).init(UTILS.allocator);
+
+    STATE.mode = GameMode.game;
+
+    try STATE.zones.append(Zone{ .name = "Home", .bounds = raylib.Rectangle{
+        .x = -1,
+        .y = -1,
+        .width = 2,
+        .height = 2,
+    } });
+}
+
+pub fn drawGame() !void {
+    raylib.clearBackground(raylib.Color.black);
+    // Draw with camera
+    raylib.beginMode2D(STATE.camera.toRaylib());
+
+    for (stars) |star| {
+        const parallax_pos = raylib.Vector2{
+            .x = star.x * star.z,
+            .y = star.y * star.z,
+        };
+        raylib.drawRectangleV(parallax_pos, raylib.Vector2{ .x = 2, .y = 2 }, raylib.Color.gray);
+    }
+
+    STATE.player.draw();
+
+    for (STATE.asteroids.items) |asteroid| {
+        asteroid.draw();
+    }
+    for (STATE.bullets.items) |bullet| {
+        bullet.draw();
+    }
+
+    for (STATE.zones.items) |zone| {
+        raylib.drawRectangleLines(
+            @intFromFloat(zone.bounds.x * ZONE_SIZE_WORLD),
+            @intFromFloat(zone.bounds.y * ZONE_SIZE_WORLD),
+            @intFromFloat(zone.bounds.width * ZONE_SIZE_WORLD),
+            @intFromFloat(zone.bounds.height * ZONE_SIZE_WORLD),
+            raylib.Color.blue,
+        );
+    }
+
+    raylib.endMode2D();
+
+    // (Optional) draw world space debug stuff here
+    if (DEBUG) {
+        raylib.drawRectangleLines(
+            @intFromFloat(DEAD_ZONE.x),
+            @intFromFloat(DEAD_ZONE.y),
+            @intFromFloat(DEAD_ZONE.width),
+            @intFromFloat(DEAD_ZONE.height),
+            raylib.Color.gray,
+        );
+        // const formatted = try std.fmt.allocPrint(
+        //     UTILS.allocator,
+        //     "Cell ({d}, {d})",
+        //     .{
+        //         std.math.floor(STATE.player.transform.position.x / ZONE_SIZE_WORLD),
+        //         std.math.floor(STATE.player.transform.position.y / ZONE_SIZE_WORLD),
+        //     },
+        // );
+        // defer UTILS.allocator.free(formatted);
+
+        // const num_asteroids = try std.fmt.allocPrint(
+        //     UTILS.allocator,
+        //     "Asteroids: {d}",
+        //     .{STATE.asteroids.items.len},
+        // );
+        // defer UTILS.allocator.free(num_asteroids);
+
+        // const camera_info = try std.fmt.allocPrint(
+        //     UTILS.allocator,
+        //     "Camera: target({d}.{d}) offset({d},{d})",
+        //     .{
+        //         STATE.camera.target.x,
+        //         STATE.camera.target.y,
+        //         STATE.camera.offset.x,
+        //         STATE.camera.offset.y,
+        //     },
+        // );
+        // defer UTILS.allocator.free(camera_info);
+
+        raylib.drawText(
+            raylib.textFormat(
+                "Cell ({d}, {d})",
+                .{
+                    std.math.floor(STATE.player.transform.position.x / ZONE_SIZE_WORLD),
+                    std.math.floor(STATE.player.transform.position.y / ZONE_SIZE_WORLD),
+                },
+            ),
+            @intFromFloat(0),
+            @intFromFloat(0),
+            20,
+            raylib.Color.gray,
+        );
+        raylib.drawText(
+            raylib.textFormat(
+                "Asteroids: {d}",
+                .{STATE.asteroids.items.len},
+            ),
+            @intFromFloat(0),
+            @intFromFloat(25),
+            20,
+            raylib.Color.gray,
+        );
+        raylib.drawText(
+            raylib.textFormat(
+                "Camera: target({d}.{d}) offset({d},{d})",
+                .{
+                    STATE.camera.target.x,
+                    STATE.camera.target.y,
+                    STATE.camera.offset.x,
+                    STATE.camera.offset.y,
+                },
+            ),
+            @intFromFloat(0),
+            @intFromFloat(50),
+            20,
+            raylib.Color.gray,
+        );
+    }
+}
+
 pub fn main() !void {
-    raylib.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Zig Asteroids");
-    defer raylib.CloseWindow();
+    raylib.initWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Zig Asteroids");
+    defer raylib.closeWindow();
 
     // Init system variables
     var seed: u64 = undefined;
@@ -400,18 +517,12 @@ pub fn main() !void {
         .rand = prng.random(),
     };
 
-    while (!raylib.WindowShouldClose()) {
-        // var playerIsAlive = true;
-        STATE.playerIsAlive = true;
-        // Init game instance
-        STATE.player = Spaceship{ .transform = .{
-            .position = raylib.Vector2{ .x = 0, .y = 0 },
-            .rotation = 0,
-            .velocity = raylib.Vector2{ .x = 0, .y = 0 },
-        } };
-
-        STATE.camera = Camera2D.init(WINDOW_WIDTH, WINDOW_HEIGHT);
-        // defer camera.deinit();
+    while (!raylib.windowShouldClose()) {
+        // Init Game
+        try initializeGame();
+        defer STATE.bullets.deinit();
+        defer STATE.asteroids.deinit();
+        defer STATE.zones.deinit();
 
         for (&stars) |*star| {
             star.* = raylib.Vector3{
@@ -421,108 +532,60 @@ pub fn main() !void {
             };
         }
 
-        var zones = std.ArrayList(Zone).init(UTILS.allocator);
-        defer zones.deinit();
-        try zones.append(Zone{ .name = "Home", .bounds = raylib.Rectangle{
-            .x = -1,
-            .y = -1,
-            .width = 2,
-            .height = 2,
-        } });
-
-        STATE.asteroids = std.ArrayList(Asteroid).init(UTILS.allocator);
-        defer STATE.asteroids.deinit();
-        STATE.asteroid_last_spawn = 0.0;
-
-        STATE.bullets = std.ArrayList(Bullet).init(UTILS.allocator);
-        defer STATE.bullets.deinit();
-        STATE.bullets_last_shot = 0.0;
-
-        while (STATE.playerIsAlive and !raylib.WindowShouldClose()) {
-
+        while (STATE.playerIsAlive and !raylib.windowShouldClose()) {
             //Update
-            const dt = raylib.GetFrameTime();
-            try UpdatePlayer(dt);
-            UpdateCamera();
-            UpdateAsteroids(dt);
-            try SpawnAsteroids();
+            switch (STATE.mode) {
+                GameMode.game => {
+                    if (raylib.isKeyPressed(raylib.KeyboardKey.p)) {
+                        STATE.mode = GameMode.paused;
+                    }
+                    const dt = raylib.getFrameTime();
+                    try UpdatePlayer(dt);
+                    UpdateCamera();
+                    UpdateAsteroids(dt);
+                    try SpawnAsteroids();
 
-            var i = STATE.bullets.items.len;
-            while (i > 0) {
-                i -= 1;
-                STATE.bullets.items[i].transform.update(dt);
+                    var i = STATE.bullets.items.len;
+                    while (i > 0) {
+                        i -= 1;
+                        STATE.bullets.items[i].transform.update(dt);
+                    }
+                    try CheckForBulletHit();
+                    STATE.playerIsAlive = !CheckForHitsOnShip();
+                },
+                GameMode.paused => {
+                    if (raylib.isKeyPressed(raylib.KeyboardKey.p)) {
+                        STATE.mode = GameMode.game;
+                    }
+                },
+                else => {
+                    unreachable;
+                },
             }
-            try CheckForBulletHit();
-            STATE.playerIsAlive = !CheckForHitsOnShip();
 
             //Draw
-            raylib.BeginDrawing();
-            raylib.ClearBackground(raylib.BLACK);
-            // Draw with camera
-            raylib.BeginMode2D(STATE.camera.toRaylib());
-
-            for (stars) |star| {
-                const parallax_pos = raylib.Vector2{
-                    .x = star.x * star.z,
-                    .y = star.y * star.z,
-                };
-                raylib.DrawRectangleV(parallax_pos, raylib.Vector2{ .x = 2, .y = 2 }, raylib.GRAY);
-            }
-
-            STATE.player.draw();
-
-            for (STATE.asteroids.items) |asteroid| {
-                asteroid.draw();
-            }
-            for (STATE.bullets.items) |bullet| {
-                bullet.draw();
-            }
-
-            for (zones.items) |zone| {
-                raylib.DrawRectangleLines(
-                    @intFromFloat(zone.bounds.x * ZONE_SIZE_WORLD),
-                    @intFromFloat(zone.bounds.y * ZONE_SIZE_WORLD),
-                    @intFromFloat(zone.bounds.width * ZONE_SIZE_WORLD),
-                    @intFromFloat(zone.bounds.height * ZONE_SIZE_WORLD),
-                    raylib.BLUE,
-                );
-            }
-
-            raylib.EndMode2D();
-
-            // (Optional) draw world space debug stuff here
-            if (DEBUG) {
-                raylib.DrawRectangleLines(
-                    @intFromFloat(DEAD_ZONE.x),
-                    @intFromFloat(DEAD_ZONE.y),
-                    @intFromFloat(DEAD_ZONE.width),
-                    @intFromFloat(DEAD_ZONE.height),
-                    raylib.GRAY,
-                );
-                const formatted = try std.fmt.allocPrint(UTILS.allocator, "Cell ({d}, {d})", .{
-                    std.math.floor(STATE.player.transform.position.x / ZONE_SIZE_WORLD),
-                    std.math.floor(STATE.player.transform.position.y / ZONE_SIZE_WORLD),
-                });
-                defer UTILS.allocator.free(formatted);
-
-                const num_asteroids = try std.fmt.allocPrint(UTILS.allocator, "Asteroids: {d}", .{STATE.asteroids.items.len});
-                defer UTILS.allocator.free(num_asteroids);
-
-                const camera_info = try std.fmt.allocPrint(UTILS.allocator, "Camera: target({d}.{d}) offset({d},{d})", .{
-                    STATE.camera.target.x,
-                    STATE.camera.target.y,
-                    STATE.camera.offset.x,
-                    STATE.camera.offset.y,
-                });
-                defer UTILS.allocator.free(camera_info);
-
-                raylib.DrawText(formatted.ptr, @intFromFloat(0), @intFromFloat(0), 20, raylib.GRAY);
-                raylib.DrawText(num_asteroids.ptr, @intFromFloat(0), @intFromFloat(25), 20, raylib.GRAY);
-                raylib.DrawText(camera_info.ptr, @intFromFloat(0), @intFromFloat(50), 20, raylib.GRAY);
+            raylib.beginDrawing();
+            switch (STATE.mode) {
+                GameMode.game => {
+                    try drawGame();
+                },
+                GameMode.paused => {
+                    raylib.clearBackground(raylib.Color.black);
+                    raylib.drawText(
+                        raylib.textFormat("Paused", .{}),
+                        WINDOW_WIDTH / 2,
+                        WINDOW_HEIGHT / 2,
+                        40,
+                        raylib.Color.gray,
+                    );
+                },
+                else => {
+                    unreachable;
+                },
             }
             // (Optional) draw UI / HUD here (in screen space)
 
-            raylib.EndDrawing();
+            raylib.endDrawing();
         }
     }
 }
