@@ -177,7 +177,10 @@ const Camera2D = struct {
 
 const Zone = struct {
     name: []const u8,
-    bounds: raylib.Rectangle,
+    grids: []const raylib.Vector2,
+    start_pos: raylib.Vector2,
+    shape: []const raylib.Vector2,
+    color: raylib.Color,
 };
 
 pub fn UpdatePlayer(dt: f32) !void {
@@ -378,18 +381,25 @@ pub fn initializeGame() !void {
     STATE.mode = GameMode.game;
 
     STATE.zones = std.ArrayList(Zone).init(UTILS.allocator);
-    try STATE.zones.append(Zone{ .name = "Home", .bounds = raylib.Rectangle{
-        .x = -1,
-        .y = -1,
-        .width = 2,
-        .height = 2,
-    } });
+    try STATE.zones.append(
+        Zone{
+            .name = "Home",
+            .grids = &[_]raylib.Vector2{
+                raylib.Vector2.init(0, 0),
+            },
+            .start_pos = raylib.Vector2.init(-0.5, -0.5),
+            .shape = &[_]raylib.Vector2{
+                raylib.Vector2.init(0, 0),
+                raylib.Vector2.init(0, 1),
+                raylib.Vector2.init(1, 1),
+                raylib.Vector2.init(1, 0),
+            },
+            .color = raylib.Color.blue,
+        },
+    );
 
     STATE.zones_map = std.AutoHashMap([2]i16, *Zone).init(UTILS.allocator);
     try STATE.zones_map.put(.{ 0, 0 }, &STATE.zones.items[0]);
-    try STATE.zones_map.put(.{ -1, 0 }, &STATE.zones.items[0]);
-    try STATE.zones_map.put(.{ 0, -1 }, &STATE.zones.items[0]);
-    try STATE.zones_map.put(.{ -1, -1 }, &STATE.zones.items[0]);
 }
 
 pub fn drawGame() !void {
@@ -414,15 +424,15 @@ pub fn drawGame() !void {
         bullet.draw();
     }
 
-    for (STATE.zones.items) |zone| {
-        raylib.drawRectangleLines(
-            @intFromFloat(zone.bounds.x * ZONE_SIZE_WORLD),
-            @intFromFloat(zone.bounds.y * ZONE_SIZE_WORLD),
-            @intFromFloat(zone.bounds.width * ZONE_SIZE_WORLD),
-            @intFromFloat(zone.bounds.height * ZONE_SIZE_WORLD),
-            raylib.Color.blue,
-        );
-    }
+    // for (STATE.zones.items) |zone| {
+    //     raylib.drawRectangleLines(
+    //         @intFromFloat(zone.bounds.x * ZONE_SIZE_WORLD),
+    //         @intFromFloat(zone.bounds.y * ZONE_SIZE_WORLD),
+    //         @intFromFloat(zone.bounds.width * ZONE_SIZE_WORLD),
+    //         @intFromFloat(zone.bounds.height * ZONE_SIZE_WORLD),
+    //         raylib.Color.blue,
+    //     );
+    // }
 
     raylib.endMode2D();
 
@@ -435,35 +445,6 @@ pub fn drawGame() !void {
             @intFromFloat(DEAD_ZONE.height),
             raylib.Color.gray,
         );
-        // const formatted = try std.fmt.allocPrint(
-        //     UTILS.allocator,
-        //     "Cell ({d}, {d})",
-        //     .{
-        //         std.math.floor(STATE.player.transform.position.x / ZONE_SIZE_WORLD),
-        //         std.math.floor(STATE.player.transform.position.y / ZONE_SIZE_WORLD),
-        //     },
-        // );
-        // defer UTILS.allocator.free(formatted);
-
-        // const num_asteroids = try std.fmt.allocPrint(
-        //     UTILS.allocator,
-        //     "Asteroids: {d}",
-        //     .{STATE.asteroids.items.len},
-        // );
-        // defer UTILS.allocator.free(num_asteroids);
-
-        // const camera_info = try std.fmt.allocPrint(
-        //     UTILS.allocator,
-        //     "Camera: target({d}.{d}) offset({d},{d})",
-        //     .{
-        //         STATE.camera.target.x,
-        //         STATE.camera.target.y,
-        //         STATE.camera.offset.x,
-        //         STATE.camera.offset.y,
-        //     },
-        // );
-        // defer UTILS.allocator.free(camera_info);
-
         raylib.drawText(
             raylib.textFormat(
                 "Cell (%i, %i)",
@@ -545,6 +526,9 @@ pub fn main() !void {
                     if (raylib.isKeyPressed(raylib.KeyboardKey.p)) {
                         STATE.mode = GameMode.paused;
                     }
+                    if (raylib.isKeyPressed(raylib.KeyboardKey.m)) {
+                        STATE.mode = GameMode.map;
+                    }
                     const dt = raylib.getFrameTime();
                     try UpdatePlayer(dt);
                     UpdateCamera();
@@ -561,6 +545,11 @@ pub fn main() !void {
                 },
                 GameMode.paused => {
                     if (raylib.isKeyPressed(raylib.KeyboardKey.p)) {
+                        STATE.mode = GameMode.game;
+                    }
+                },
+                GameMode.map => {
+                    if (raylib.isKeyPressed(raylib.KeyboardKey.m)) {
                         STATE.mode = GameMode.game;
                     }
                 },
@@ -584,6 +573,74 @@ pub fn main() !void {
                         40,
                         raylib.Color.gray,
                     );
+                },
+                GameMode.map => {
+                    raylib.clearBackground(raylib.Color.black);
+                    const map_top = 100;
+                    const map_left = WINDOW_WIDTH / 2;
+                    const map_right = WINDOW_WIDTH - 200;
+                    const map_bottom = WINDOW_HEIGHT - 100;
+                    const grid = 20;
+                    const cell_width = (map_right - map_left) / grid;
+                    const cell_height = (map_bottom - map_top) / grid;
+                    const centre_x = map_left + ((map_right - map_left) / 2);
+                    const centre_y = map_top + ((map_bottom - map_top) / 2);
+                    for (1..grid) |i| {
+                        raylib.drawLine(
+                            @intCast(map_left),
+                            @intCast(map_top + (i * cell_height)),
+                            @intCast(map_right),
+                            @intCast(map_top + (i * cell_height)),
+                            raylib.Color.dark_gray,
+                        );
+                        raylib.drawLine(
+                            @intCast(map_left + (i * cell_width)),
+                            @intCast(map_top),
+                            @intCast(map_left + (i * cell_width)),
+                            @intCast(map_bottom),
+                            raylib.Color.dark_gray,
+                        );
+                    }
+                    raylib.drawLine(
+                        @intCast(map_left),
+                        @intCast(map_top),
+                        @intCast(map_right),
+                        @intCast(map_top),
+                        raylib.Color.white,
+                    );
+                    raylib.drawLine(
+                        @intCast(map_left),
+                        @intCast(map_top),
+                        @intCast(map_left),
+                        @intCast(map_bottom),
+                        raylib.Color.white,
+                    );
+                    raylib.drawLine(
+                        @intCast(map_right),
+                        @intCast(map_top),
+                        @intCast(map_right),
+                        @intCast(map_bottom),
+                        raylib.Color.white,
+                    );
+                    raylib.drawLine(
+                        @intCast(map_left),
+                        @intCast(map_bottom),
+                        @intCast(map_right),
+                        @intCast(map_bottom),
+                        raylib.Color.white,
+                    );
+                    for (STATE.zones.items) |zone| {
+                        for (0..zone.grids.len) |i| {
+                            // std.debug.print("Drawing Zone {} grid {}", .{ zone.name, i });
+                            raylib.drawRectangle(
+                                @intFromFloat(centre_x - cell_width / 2 + zone.grids[i].x),
+                                @intFromFloat(centre_y - cell_height / 2 + zone.grids[i].y),
+                                @intCast(cell_width),
+                                @intCast(cell_height),
+                                zone.color,
+                            );
+                        }
+                    }
                 },
                 else => {
                     unreachable;
