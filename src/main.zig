@@ -177,7 +177,8 @@ const Camera2D = struct {
 
 const Zone = struct {
     name: []const u8,
-    grids: []const raylib.Vector2,
+    // grids: []const raylib.Vector2,
+    grids: []const [2]u16,
     start_pos: raylib.Vector2,
     shape: []const raylib.Vector2,
     color: raylib.Color,
@@ -384,9 +385,10 @@ pub fn initializeGame() !void {
     try STATE.zones.append(
         Zone{
             .name = "Home",
-            .grids = &[_]raylib.Vector2{
-                raylib.Vector2.init(0, 0),
-            },
+            // .grids = &[_]raylib.Vector2{
+            //     raylib.Vector2.init(0, 0),
+            // },
+            .grids = &[_][2]u16{.{ 0, 0 }},
             .start_pos = raylib.Vector2.init(-0.5, -0.5),
             .shape = &[_]raylib.Vector2{
                 raylib.Vector2.init(0, 0),
@@ -579,13 +581,23 @@ pub fn main() !void {
                     const map_top = 100;
                     const map_left = WINDOW_WIDTH / 2;
                     const map_right = WINDOW_WIDTH - 200;
-                    const map_bottom = WINDOW_HEIGHT - 100;
-                    const grid = 20;
+                    var map_bottom = WINDOW_HEIGHT - 100;
+                    const grid = 19;
                     const cell_width = (map_right - map_left) / grid;
                     const cell_height = (map_bottom - map_top) / grid;
+                    map_bottom = map_top + (grid * cell_height);
                     const centre_x = map_left + ((map_right - map_left) / 2);
                     const centre_y = map_top + ((map_bottom - map_top) / 2);
+                    // std.debug.print(
+                    //     "top {d}, bottom {d}, left {d}, right {d}\n",
+                    //     .{ map_top, map_bottom, map_left, map_right },
+                    // );
                     for (1..grid) |i| {
+                        // std.debug.print("[{d} - {d} {d}]", .{
+                        //     i,
+                        //     map_left + (i * cell_width),
+                        //     map_top + (i * cell_height),
+                        // });
                         raylib.drawLine(
                             @intCast(map_left),
                             @intCast(map_top + (i * cell_height)),
@@ -601,6 +613,7 @@ pub fn main() !void {
                             raylib.Color.dark_gray,
                         );
                     }
+                    // std.debug.print("\n", .{});
                     raylib.drawLine(
                         @intCast(map_left),
                         @intCast(map_top),
@@ -629,18 +642,51 @@ pub fn main() !void {
                         @intCast(map_bottom),
                         raylib.Color.white,
                     );
+                    // for (STATE.zones.items) |zone| {
+                    //     for (0..zone.grids.len) |g| {
+                    //         // std.debug.print("Drawing Zone {} grid {}", .{ zone.name, i });
+                    //         // const check_x = centre_x - (cell_width / 2) + zone.grids[i].x * cell_width;
+                    //         // const check_y = centre_y - (cell_height / 2) + zone.grids[i].y * cell_height;
+                    //         const x = centre_x - (cell_width / 2) + @as(u16, @intFromFloat(zone.grids[g].x)) * cell_width;
+                    //         const y = centre_y - (cell_height / 2) + @as(u16, @intFromFloat(zone.grids[g].y)) * cell_height;
+                    //         std.debug.print(
+                    //             "centre x: {d}, cell_width: {d}, zone.grids: {d}, result: {d}\n",
+                    //             .{ centre_x, cell_width, zone.grids[g].x, x },
+                    //         );
+                    //         std.debug.print(
+                    //             "centre y: {d}, cell_height: {d}, zone.grids: {d}, result: {d}\n",
+                    //             .{ centre_y, cell_height, zone.grids[g].y, y },
+                    //         );
+                    //         raylib.drawRectangle(
+                    //             x,
+                    //             y,
+                    //             @intCast(cell_width),
+                    //             @intCast(cell_height),
+                    //             zone.color,
+                    //         );
+                    //     }
+                    // }
                     for (STATE.zones.items) |zone| {
-                        for (0..zone.grids.len) |i| {
-                            // std.debug.print("Drawing Zone {} grid {}", .{ zone.name, i });
+                        for (0..zone.grids.len) |g| {
+                            // const x_offset = @as(f32, zone.grids[g].x) * @as(f32, @floatFromInt(cell_width));
+                            // std.debug.print("TEST Y {d}\n", .{zone.grids[g].y});
+                            // std.debug.print("TEST Y f32 {d}\n", .{@as(f32, zone.grids[g].y)});
+                            // const x = @as(f32, @floatFromInt(centre_x - (cell_width / 2))) + @as(f32, zone.grids[g].x) * @as(f32, @floatFromInt(cell_width));
+                            // const y = @as(f32, @floatFromInt(centre_y - (cell_height / 2))) + @as(f32, zone.grids[g].y) * @as(f32, @floatFromInt(cell_height));
+                            const x = centre_x - (cell_width / 2) + zone.grids[g][0] * cell_width;
+                            const y = centre_y - (cell_height / 2) + zone.grids[g][1] * cell_height;
+
                             raylib.drawRectangle(
-                                @intFromFloat(centre_x - cell_width / 2 + zone.grids[i].x),
-                                @intFromFloat(centre_y - cell_height / 2 + zone.grids[i].y),
+                                x,
+                                y,
                                 @intCast(cell_width),
                                 @intCast(cell_height),
                                 zone.color,
                             );
                         }
                     }
+
+                    raylib.drawRectangle(centre_x, centre_y, 2, 2, raylib.Color.white);
                 },
                 else => {
                     unreachable;
